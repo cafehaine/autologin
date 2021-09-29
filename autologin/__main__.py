@@ -7,8 +7,10 @@ import random
 import sys
 from time import sleep
 from typing import Dict, Type
+from urllib.parse import urljoin
 
 import requests
+from bs4 import BeautifulSoup
 
 # Urls and contents used to check if we are blocked
 PORTAL_DETECT_URLS: Dict[str, str] = {
@@ -36,8 +38,38 @@ class PortalHandler(ABC):
 
 
 class ULCOPortalHandler(PortalHandler):
+    body_criteria = ["<title>ULCO Portail Captif</title>"]
+    url_criteria = ["https://eduspot.univ-littoral.fr/"]
+    config_section = "portal.ulco"
+
     def login(self, url: str, portal: str) -> None:
-        pass  # TODO actually do the requests to login
+        session = requests.Session()
+        if self._config.getboolean("portal.ulco", "is_internal_account", fallback=True):
+            session.cookies.set(
+                "kanet-choice", "cas", domain="univ-littoral.fr", path="/"
+            )
+            print(portal)
+            response = session.get(
+                "https://auth.univ-littoral.fr/cas/login?service=https://eduspot.univ-littoral.fr/login_cas/"
+            )
+            soup = BeautifulSoup(response.content, "lxml")
+            form = soup.find("form")
+            parameters = {
+                "username": self._config.get("portal.ulco", "login"),
+                "password": self._config.get("portal.ulco", "password"),
+                "lt": form.find("input", attrs={"name": "lt"})["value"],
+                "_eventId": "submit",
+                "submit": "SE CONNECTER",
+            }
+            submit_url = urljoin(response.url, form["action"])
+            response = session.post(submit_url, parameters)
+            if not response.ok:
+                raise RuntimeError("Invalid login or password")
+            response = session.post(
+                urljoin(response.url, "../update/"), {"httpredirect": False}
+            )
+        else:
+            raise RuntimeError("Renater accounts are not yet supported")
 
 
 def get_portal_handler(url: str, portal: str) -> Type[PortalHandler]:
@@ -49,7 +81,7 @@ def get_portal_handler(url: str, portal: str) -> Type[PortalHandler]:
 def login(config: ConfigParser, url: str, portal: str) -> None:
     """Select a portal handler, and then call the login method."""
     portal_handler = get_portal_handler(url, portal)
-    print(f"Detected portal of type {portal_handler.__class__.__name__}.")
+    print(f"Detected portal of type {portal_handler.__name__}.")
     portal_handler(config).login(url, portal)
 
 
@@ -113,9 +145,9 @@ def main():
     )
 
     while True:
+        check_online(config)
         print(f"Waiting for {sleep_duration}s before checking.")
         sleep(sleep_duration)
-        check_online(config)
 
 
 if __name__ == "__main__":
