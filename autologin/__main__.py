@@ -1,7 +1,8 @@
+from abc import ABC, abstractmethod
 from datetime import timedelta
 import random
 from time import sleep
-from typing import Dict
+from typing import Dict, Type
 
 import requests
 
@@ -29,7 +30,7 @@ class ULCOPortalHandler(PortalHandler):
         pass  # TODO actually do the requests to login
 
 
-def get_portal_handler(url: str, portal: str) -> PortalHandler:
+def get_portal_handler(url: str, portal: str) -> Type[PortalHandler]:
     """Return a PortalHandler based on the portal's contents."""
     # TODO detect portal, for now only support for ULCO's portal
     return ULCOPortalHandler
@@ -37,17 +38,17 @@ def get_portal_handler(url: str, portal: str) -> PortalHandler:
 
 def login(config, url: str, portal: str) -> None:
     """Select a portal handler, and then call the login method."""
-    portal_handler = get_portal_handler(portal)
+    portal_handler = get_portal_handler(url, portal)
     print(f"Detected portal of type {portal_handler.__class__.__name__}.")
     portal_handler(config).login(url, portal)
 
 
 def check_online(config) -> None:
     """Check if the computer is online, and login if a portal is detected."""
-    url, expected_content = random.choice(PORTAL_DETECT_URLS.items())
+    url, expected_content = random.choice(list(PORTAL_DETECT_URLS.items()))
     try:
         # allow_redirects defaults to True, but it's better to be explicit
-        result = requests.get(random.choice(PORTAL_DETECT_URLS), allow_redirects=True)
+        result = requests.get(url, allow_redirects=True)
     except requests.RequestException:
         print("Network error, probably offline")
         return
@@ -55,7 +56,7 @@ def check_online(config) -> None:
         print("Computer is online")
         return
     print("Did not match expected content, trying to log-in.")
-    login(result.url, result.text)
+    login(config, result.url, result.text)
 
 
 def main():
